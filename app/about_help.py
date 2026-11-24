@@ -29,6 +29,8 @@ st.sidebar.write(f"""
 ## **[Definitions](#definitions)**
 \n:material/arrow_right_alt: [TFClass hierarchy](#tfclass_hierarchy)
 \n:material/arrow_right_alt: [Vagueness metric, Vagueness penalty](#vagueness)
+\n:material/arrow_right_alt: [Shuffle rank](#shuffle_rank)
+\n:material/arrow_right_alt: [Shuffle K comparison](#shuffle_k)
 
 ## **Pages**
 \n:material/home: [Home Page](#home_page)
@@ -111,6 +113,57 @@ convenience purposes, and it doesn't affect the actual pattern matching, and it
 doesn't discard any patterns. If desired, the user can still click on a column,
 such as "Observed matches" to sort the patterns based on the number of matches
 instead.
+""")
+
+st.subheader("Shuffle rank", anchor="shuffle_rank")
+
+helper.container_indent().markdown("""
+:primary[**Shuffle rank**] orders the patterns within one TF by how rarely a
+randomly reordered copy of that TF matches them as often as the real sequence.
+
+1. Residue 1 is kept in place, and residues 2 onwards are randomly reordered
+   ([Wregex 3.0](https://pmc.ncbi.nlm.nih.gov/articles/PMC11318550/)).
+2. The non-overlapping matches of each pattern are counted in the reordered copy.
+3. This is repeated $K = 200{,}000$ times, and the :primary[**Shuffle p**] is
+   $(1 + b) / (K + 1)$, where $b$ is the number of copies with at least as many
+   matches as the real sequence
+   ([Phipson and Smyth, 2010](https://doi.org/10.2202/1544-6115.1585);
+   [Hemerik and Goeman, 2018](https://doi.org/10.1007/s11749-017-0571-1)).
+4. The smallest Shuffle p gets rank 1. Equal values share a rank.
+
+Repeated shuffles of a sequence to count ELM matches are also used by
+[mimicINT](https://pmc.ncbi.nlm.nih.gov/articles/PMC11982803/) and
+[Hagai et al., 2014](https://pmc.ncbi.nlm.nih.gov/articles/PMC4089993/).
+Using a whole-protein shuffle to order the patterns within a TF is our
+application of these sources.
+
+It is to be noted that a high rank means that the count is unusual when the
+residues of this TF are reordered. It doesn't show that a match is functional.
+The values are not adjusted for multiple testing, and the Vagueness penalty
+doesn't affect them.
+""")
+
+st.subheader("Shuffle K comparison", anchor="shuffle_k")
+
+helper.container_indent().markdown("""
+The :primary[**Shuffle K Comparison**] page shows how the shuffle rank of each
+TF changes with the number of shuffles $K$. One stream of $200{,}000$ shuffles
+per TF is read off at $K = 10{,}000$, $50{,}000$, $100{,}000$ and $200{,}000$, so
+the smaller $K$ are the first shuffles of the larger one. Every pair of $K$ is
+compared, and the page opens with a plain-language guide to each measure.
+
+- The :primary[**top 10%**] of a TF are the classes whose rank is at most
+  $\\lceil 0.1 n \\rceil$, where $n$ is the number of classes in the TF. Classes
+  tied at the cut are all kept.
+- :primary[**Top-10% overlap**] is $|A \\cap B| / |A \\cup B|$ between the top
+  sets at two $K$ ([Jaccard, 1912](https://doi.org/10.1111/j.1469-8137.1912.tb05611.x)).
+- :primary[**Spearman ρ**] compares the full rankings (1 = same order)
+  ([Spearman, 1904](https://doi.org/10.2307/1412159)).
+- :primary[**At floor**] counts classes which no shuffle reached. They all have
+  the smallest possible $p = 1/(K+1)$ and so tie; a larger $K$ can separate them.
+
+Comparing $K$ this way is our application of the sources in
+[Shuffle rank](#shuffle_rank).
 """)
 
 #endregion

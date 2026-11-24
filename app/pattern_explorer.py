@@ -38,9 +38,12 @@ data = data_loading.init()
 # disprot_df = data.disprot_df
 tfclasses_df = data.tfclasses_df
 # dbd_ranges_df = data.dbd_ranges_df
-# genus_num_name_map = data.genus_num_name_map
+genus_num_name_map = data.genus_num_name_map
 matches_df = data.matches_df
 sequence_dict = data.sequence_dict
+shuffle_scores_by_k_df = data.shuffle_scores_by_k_df
+# the shuffle scores are the rows at the largest K
+shuffle_scores_df = shuffle_scores_by_k_df[shuffle_scores_by_k_df["K"] == shuffle_scores_by_k_df["K"].max()] if shuffle_scores_by_k_df is not None else None
 
 #endregion
 
@@ -94,6 +97,17 @@ with st.expander(f"Select Patterns", icon=":material/view_timeline:", expanded=T
         max_penalty_at_20 = helper.render_vagueness_penalty_slider()
     vagueness_penalty_func = patterns.make_vagueness_penalty_func(max_penalty_at_20)
 
+    rank_within_tf: str | None = None
+    # ! The shuffle scores may cover only some of the TFs, so offer only those.
+    cart_with_shuffle_scores = sorted(cart & set(shuffle_scores_df["Genus_Num"])) if shuffle_scores_df is not None else []
+    if cart_with_shuffle_scores:
+        rank_within_tf = st.selectbox(
+            "Rank within TF",
+            options=[None, *cart_with_shuffle_scores],
+            format_func=lambda genus_num: "All TFs (current view)" if genus_num is None else genus_num_name_map.get(genus_num, genus_num),
+            help="Choose a TF from the cart to rank only its patterns, and compare the TF-DISCO rank with the [shuffle rank](/help#shuffle_rank).",
+        )
+
     #endregion
 
     #region Patterns list
@@ -108,12 +122,17 @@ with st.expander(f"Select Patterns", icon=":material/view_timeline:", expanded=T
             lambda pattern_group_df: required_genus_nums.issubset(set(pattern_group_df["Genus_Num"].unique()))
         )
 
+    if rank_within_tf:
+        matches_filtered = matches_filtered[matches_filtered["Genus_Num"] == rank_within_tf]
+
     patterns_count_total = matches_df["ELM_Acc"].nunique()
     patterns_df = patterns.compute_pattern_scores(matches_filtered, sequence_dict, vagueness_penalty_func)
+    if rank_within_tf and shuffle_scores_df is not None:
+        patterns_df = patterns.add_shuffle_rank(patterns_df, shuffle_scores_df, rank_within_tf)
     score_min = patterns_df["Log2FC"].min()
     score_max = patterns_df["Log2FC"].max()
 
-    if filt_to_cart or strictly_in_all_tfs:
+    if filt_to_cart or strictly_in_all_tfs or rank_within_tf:
         st.write(f"Displaying :primary[**{len(patterns_df)}**] out of :primary[**{patterns_count_total}**] patterns:")
     else:
         st.write(f"Displaying :primary[**{patterns_count_total}**] patterns:")
@@ -124,11 +143,20 @@ with st.expander(f"Select Patterns", icon=":material/view_timeline:", expanded=T
         "Regex": "Regex",
         # "Vagueness": None,
         # "Expected": None,
-        "Observed": "Observed matches" + (" (in cart)" if filt_to_cart else ""),
+        "Observed": "Observed matches" + (" (in TF)" if rank_within_tf else " (in cart)" if filt_to_cart else ""),
         # "ZScore": None,
         # "Log2FC": None,
         "NumTFs": "Count of TFs" + (" (in cart)" if filt_to_cart else ""),
     }
+    display_columns_shuffle = {}
+    if rank_within_tf:
+        del display_columns["NumTFs"]
+        display_columns_shuffle = {
+            "TFDisco_Rank": st.column_config.NumberColumn("TF-DISCO rank", help="Rank by the current score, which uses the Vagueness Penalty."),
+            "Shuffle_Rank": st.column_config.NumberColumn("Shuffle rank", help="Rank by Shuffle p, within this TF. Rank 1 is the hardest count to reach by reordering the residues."),
+            "Shuffle_P": st.column_config.NumberColumn("Shuffle p", format="%.6f", help="Share of 200,000 shuffles of this TF which match at least as often as the real sequence."),
+            "Shuffle_Mean": st.column_config.NumberColumn("Mean matches per shuffle", format="%.2f"),
+        }
 
     if len(patterns_df) == 0:
         st.warning("".join([
@@ -143,14 +171,16 @@ with st.expander(f"Select Patterns", icon=":material/view_timeline:", expanded=T
             filt_to_cart,
             strictly_in_all_tfs,
             max_penalty_at_20,
+            rank_within_tf,
         ]))
         patterns__state = st.dataframe(
-            data=patterns_df[list(display_columns)],
+            data=patterns_df[[*display_columns_shuffle, *display_columns]],
             selection_default={"selection": {"rows":
                 patterns_df.index[patterns_df["ELM_Acc"] == st.query_params.get("elm_acc", None)].tolist()
             }},
             column_config={
                 **display_columns,
+                **display_columns_shuffle,
                 # "Log2FC": st.column_config.ProgressColumn(display_columns["Log2FC"], min_value=score_min, max_value=score_max, format="%0.2f"),
             },
             hide_index=True,

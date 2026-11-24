@@ -379,3 +379,89 @@ def compute_pattern_scores(
     return scores
 
 #endregion
+
+#region Shuffle ranking
+def add_shuffle_rank(scores: pd.DataFrame, shuffle_scores_df: pd.DataFrame, genus_num: str) -> pd.DataFrame:
+    """Add the precomputed shuffle p-values of a single TF to its pattern scores.
+
+    The shuffle p-value is computed by `scripts/compute_shuffle_scores.py`. It
+    doesn't use the vagueness or the vagueness penalty, so the penalty only
+    affects `TFDisco_Rank`.
+
+    Args:
+        scores (pd.DataFrame): Output of `compute_pattern_scores()`, computed
+            on the matches of this TF only.
+        shuffle_scores_df (pd.DataFrame): The precomputed shuffle scores of all TFs.
+        genus_num (str): The genus number of the TF.
+    Returns:
+        pd.DataFrame: A copy of `scores`, in the same order, with these extra
+            columns: `TFDisco_Rank`, `Shuffle_Rank`, `Shuffle_P`, `Shuffle_Mean`.
+            Rank 1 is the best, and equal values share a rank.
+    """
+
+    tf_shuffle_scores = shuffle_scores_df[shuffle_scores_df["Genus_Num"] == genus_num]
+    scores = scores.merge(tf_shuffle_scores[["ELM_Acc", "Shuffle_P", "Shuffle_Mean"]], how="left", on="ELM_Acc")
+    scores["TFDisco_Rank"] = scores["Log2FC"].rank(ascending=False, method="min").astype("Int64")
+    scores["Shuffle_Rank"] = scores["Shuffle_P"].rank(ascending=True, method="min").astype("Int64")
+    return scores
+
+TOP_FRACTION: Final = 0.10
+"""Share of the classes of a TF which counts as its top set."""
+
+def rank_by_k(scores_by_k: pd.DataFrame) -> pd.DataFrame:
+    """Rank the classes within each TF, separately at each K.
+
+    Args:
+        scores_by_k (pd.DataFrame): Rows of (`Genus_Num`, `ELM_Acc`, `K`) with
+            `Shuffle_P` and `Shuffles_Reaching`, as written by
+            `scripts/compute_shuffle_scores.py`.
+    Returns:
+        pd.DataFrame: A copy with extra columns: `Shuffle_Rank` (1 is the
+            smallest p, equal values share the best rank, as in
+            `add_shuffle_rank()`), `Top` (rank within the top `TOP_FRACTION`
+            of the TF's classes; ties at the cut are kept, so the set can be
+            larger), and `At_Floor` (no shuffle reached the real count, so p is
+            the smallest possible value, 1 / (K + 1)).
+    """
+    df = scores_by_k.copy()
+    groups = df.groupby(["Genus_Num", "K"])["Shuffle_P"]
+    df["Shuffle_Rank"] = groups.rank(ascending=True, method="min").astype(int)
+    cut = np.ceil(TOP_FRACTION * groups.transform("size"))
+    df["Top"] = df["Shuffle_Rank"] <= cut
+    df["At_Floor"] = df["Shuffles_Reaching"] == 0
+    return df
+
+def k_tf_stats(ranked: pd.DataFrame) -> pd.DataFrame:
+    """Per (`Genus_Num`, `K`): `Classes`, `Top_Size` and `At_Floor` (classes no
+    shuffle reached, tied at the smallest p = 1 / (K + 1))."""
+    return ranked.groupby(["Genus_Num", "K"]).agg(
+        Classes=("ELM_Acc", "size"), Top_Size=("Top", "sum"), At_Floor=("At_Floor", "sum"),
+    ).reset_index()
+
+def k_pairs(ranked: pd.DataFrame) -> pd.DataFrame:
+    """Compare the ranking of each TF between every pair of K.
+
+    Args:
+        ranked (pd.DataFrame): Output of `rank_by_k()`.
+    Returns:
+        pd.DataFrame: One row per (`Genus_Num`, `K_A`, `K_B`) with `K_A < K_B`:
+            `Top_Jaccard` (overlap of the top sets, |A ∩ B| / |A ∪ B|; Jaccard
+            1912) and `Spearman` (Spearman 1904: Pearson correlation of the
+            average ranks of p; NaN if one ranking is all ties).
+    """
+    rows = []
+    for genus_num, tf in ranked.groupby("Genus_Num"):
+        # Spearman = Pearson on average ranks (no scipy dependency)
+        rho = tf.pivot(index="ELM_Acc", columns="K", values="Shuffle_P").rank().corr()
+        top = tf.pivot(index="ELM_Acc", columns="K", values="Top")
+        ks = list(top.columns)
+        for i, k_a in enumerate(ks):
+            for k_b in ks[i + 1:]:
+                rows.append({
+                    "Genus_Num": genus_num, "K_A": k_a, "K_B": k_b,
+                    "Top_Jaccard": (top[k_a] & top[k_b]).sum() / (top[k_a] | top[k_b]).sum(),
+                    "Spearman": rho.loc[k_a, k_b],
+                })
+    return pd.DataFrame(rows)
+
+#endregion

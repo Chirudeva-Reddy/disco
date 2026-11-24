@@ -66,6 +66,9 @@ PATH_PAGE_TF_VIEW: Final = PATH_ROOT / "app/tf_view.py"
 PATH_PAGE_PATTERN_EXPLORER: Final = PATH_ROOT / "app/pattern_explorer.py"
 """Path to the **Pattern Explorer** page."""
 
+PATH_PAGE_K_COMPARISON: Final = PATH_ROOT / "app/k_comparison.py"
+"""Path to the **Shuffle K Comparison** page."""
+
 PATH_PAGE_ABOUT: Final = PATH_ROOT / "app/about.py"
 """Path to the **About** page."""
 
@@ -103,6 +106,12 @@ class PathData:
     TF_MATCHES: Path
     """Path to the TSV file with all matches of the patterns among all TFs."""
 
+    TF_SHUFFLE_SCORES_BY_K: Path
+    """Path to the TSV file with the precomputed shuffle p-value of each pattern
+    in each TF at several K, from one nested stream of shuffles (see
+    `scripts/compute_shuffle_scores.py --checkpoints`). The rows at the largest
+    K are the shuffle scores. This file is optional."""
+
     def __init__(self, base_dir: Path):
         """Initialize paths to Data files, with the provided base directory."""
         self.set_base_dir(base_dir)
@@ -117,6 +126,7 @@ class PathData:
         self.TFS_DISORDER = base_dir / "tfs_metrics/"
         self.TF_PATTERNS = base_dir / "patterns.tsv"
         self.TF_MATCHES = base_dir / "matches.tsv"
+        self.TF_SHUFFLE_SCORES_BY_K = base_dir / "elm_shuffle_scores_by_k.tsv"
 
 PATH_DATA: Final = PathData(ENV_DATASET_PATH_OVERRIDE or Path("./data/")) # initial value
 
@@ -226,6 +236,10 @@ select a pattern for further analysis, click on the
 :primary[:material/check_box:] checkbox next to the pattern.\\
 These patterns are ranked with the help of the vagueness metric as described
 {"[above](#vagueness)" if is_on_help_page else "in the [Help page](/help#vagueness)"}.
+
+To compare rankings for one TF, choose it under :primary[**Rank within TF**]. The
+table then shows the TF-DISCO rank beside the shuffle rank, as described
+{"[above](#shuffle_rank)" if is_on_help_page else "in the [Help page](/help#shuffle_rank)"}.
 
 The sequence logo of the selected pattern is displayed below the table. Multiple
 sequence alignment is performed using the [MUSCLE](https://drive5.com/muscle5)

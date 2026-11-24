@@ -137,6 +137,13 @@ def __load_matches() -> pd.DataFrame:
     matches = matches[matches.groupby("Regex")["ELM_Acc"].transform("count") > 1]
     return matches
 
+def __load_shuffle_scores_by_k() -> pd.DataFrame | None:
+    """Load the shuffle scores at several K, or `None` if the file doesn't exist
+    in this dataset."""
+    if not constants.PATH_DATA.TF_SHUFFLE_SCORES_BY_K.is_file():
+        return None
+    return pd.read_csv(constants.PATH_DATA.TF_SHUFFLE_SCORES_BY_K, sep="\t")
+
 class TFInfo(NamedTuple):
     Uniprot_Acc: str
     Genus_Name: str
@@ -206,6 +213,7 @@ class InitResult:
     genus_num_name_map: dict[str, str]
     matches_df: pd.DataFrame
     sequence_dict: dict[str, TFInfo]
+    shuffle_scores_by_k_df: pd.DataFrame | None
 
 def init(force_reload: bool=False) -> InitResult:
     """Initialize variables. Note that only the rows corresponding to the TFs
@@ -229,6 +237,7 @@ def init(force_reload: bool=False) -> InitResult:
         disprot_df, tfclasses_df, genus_num_name_map = __load_disprot_tfclasses_dfs()
         matches_df = __load_matches()
         sequence_dict = __load_fasta()
+        shuffle_scores_by_k_df = __load_shuffle_scores_by_k()
 
         # Keep only those rows which have corresponding files on disk.
         tfclasses_df = tfclasses_df[tfclasses_df["Genus_Num"].isin(genus_numbers)].reset_index(drop=True)
@@ -241,6 +250,7 @@ def init(force_reload: bool=False) -> InitResult:
         genus_num_name_map=genus_num_name_map,
         matches_df=matches_df,
         sequence_dict=sequence_dict,
+        shuffle_scores_by_k_df=shuffle_scores_by_k_df,
     )
 
     __global_state()["data"] = result
